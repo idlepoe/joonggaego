@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "573656772366",
+    "project_id": "joonggaego",
+    "storage_bucket": "joonggaego.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:573656772366:android:593e63ecfc39e657c8f15f",
+        "android_client_info": {
+          "package_name": "com.jylee.joonggaego"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAthWPe00nybgBdsG6atzdQLX26oucQl7g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
