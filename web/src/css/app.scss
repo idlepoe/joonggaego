@@ -1,0 +1,170 @@
+// app global css
+:root {
+  --app-max-width: 720px;
+  /* 인트로 레일: 왼쪽 여백 안에서만 가변 폭(중앙 본문과 절대 겹치지 않음). 넓은 화면에서의 상한 */
+  --app-intro-rail-max-w: 400px;
+  --exam-correct-bg: #ffcccc;
+  --exam-correct-text: #ffffff;
+  --exam-pick-choice-bg: #1565c0;
+  --exam-pick-choice-text: #ffffff;
+}
+
+body {
+  background-color: #f0f0f0;
+}
+
+#q-app {
+  width: 100%;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.app-root {
+  display: block;
+  width: 100%;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* 왼쪽 여백: 본문(정중앙 720px)과 겹치지 않게, 남는 왼쪽만큼만 가변 폭 */
+.app-intro-rail {
+  --_intro-margin: max(0px, calc(50% - var(--app-max-width) / 2));
+  display: none;
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 100;
+  width: min(var(--app-intro-rail-max-w), var(--_intro-margin));
+  min-width: 0;
+  max-width: min(var(--app-intro-rail-max-w), var(--_intro-margin));
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* 왼쪽 여백이 너무 좁으면 레일 숨김(960px → 여백 ≥ 120px) */
+@media (min-width: 960px) {
+  .app-intro-rail {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+.body--dark body {
+  background-color: #121212;
+}
+
+/* 본문 컬럼: 뷰포트 정중앙(툴바·페이지와 동일 기준) */
+#app-shell {
+  position: relative;
+  width: min(var(--app-max-width), 100%);
+  max-width: var(--app-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-color: #fff;
+}
+
+.body--dark #app-shell {
+  background-color: #1e1e1e;
+  color: #eee;
+}
+
+/* 회독·모의고사 문제 본문 글자 크기 (옵션) */
+.exam-question-text--sm {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+.exam-question-text--md {
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+.exam-question-text--lg {
+  font-size: 1.0625rem;
+  line-height: 1.45;
+}
+.exam-question-text--xl {
+  font-size: 1.1875rem;
+  line-height: 1.45;
+}
+.exam-question-text--max {
+  font-size: 1.3125rem;
+  line-height: 1.45;
+}
+
+/* 하단 스티키 툴바 높이 */
+.exam-page-sticky-toolbar {
+  box-sizing: border-box;
+}
+.exam-page-sticky-toolbar--normal {
+  min-height: 48px;
+}
+.exam-page-sticky-toolbar--large {
+  min-height: 56px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.exam-page-sticky-toolbar--xlarge {
+  min-height: 64px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+/* 정답 하이라이트 (배경·글자색은 옵션 CSS 변수) */
+.exam-correct-highlight {
+  background-color: var(--exam-correct-bg, #ffcccc) !important;
+  color: var(--exam-correct-text, #ffffff) !important;
+}
+
+.exam-correct-highlight .text-body1,
+.exam-correct-highlight .text-body2 {
+  color: inherit !important;
+}
+
+/* 모의고사: 선택한 보기(pickChoice) 배경·글자색 */
+.exam-mock-choice-pending,
+.exam-mock-choice-selected {
+  background-color: var(--exam-pick-choice-bg, #1565c0) !important;
+  color: var(--exam-pick-choice-text, #ffffff) !important;
+}
+
+.exam-mock-choice-pending .text-body1,
+.exam-mock-choice-pending .text-body2,
+.exam-mock-choice-selected .text-body1,
+.exam-mock-choice-selected .text-body2 {
+  color: inherit !important;
+}
+
+/*
+ * Quasar q-header / q-page-sticky: 본문 열과 동일하게 가운데 정렬.
+ * (100vw - bar) / 2 는 스크롤바 포함 vw 때문에 본문(margin auto)보다 오른쪽으로 밀릴 수 있음 → 50% 기준.
+ */
+#app-shell .q-header,
+#app-shell .q-page-sticky {
+  --_bar-w: min(var(--app-max-width), 100%);
+  width: var(--_bar-w) !important;
+  max-width: var(--app-max-width) !important;
+  left: max(0px, calc(50% - var(--_bar-w) / 2)) !important;
+  right: auto !important;
+  box-sizing: border-box;
+}
+
+/* 답안지·모의 등: 페이지에서 q-page-sticky로 감싼 하단 네비 */
+#app-shell .q-page-sticky.exam-sheet-nav-sticky-wrap {
+  top: auto !important;
+  bottom: 0 !important;
+  margin: 0 !important;
+  background-color: #fff;
+  justify-content: stretch !important;
+  align-items: stretch !important;
+}
+
+#app-shell .q-page-sticky.exam-sheet-nav-sticky-wrap .q-toolbar {
+  width: 100%;
+  max-width: 100%;
+}
+
+.body--dark #app-shell .q-page-sticky.exam-sheet-nav-sticky-wrap {
+  background-color: #1e1e1e;
+}
