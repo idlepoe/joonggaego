@@ -7,8 +7,8 @@ declare namespace NodeJS {
 }
 
 interface ImportMetaEnv {
-  /** GitHub Raw 루트 (예: https://raw.githubusercontent.com/owner/repo/main) */
-  readonly VITE_EXAM_RAW_BASE?: string;
+  /** GitHub blob 루트 (예: https://github.com/owner/repo/blob/main) */
+  readonly VITE_EXAM_JSON_BASE?: string;
 }
 
 interface ImportMeta {

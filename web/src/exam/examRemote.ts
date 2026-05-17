@@ -1,5 +1,5 @@
 import type { ExamQuestion } from 'src/types/exam';
-import { examJsonUrl, examSessionsManifestUrl } from './constants';
+import { examJsonFetchUrl, examSessionsManifestUrl } from './constants';
 
 export type ExamSessionsManifest = {
   sessions: string[];
@@ -31,7 +31,7 @@ export function fetchExamJson(examSession: string): Promise<ExamQuestion[]> {
   const key = examSession;
   let p = jsonCache.get(key);
   if (!p) {
-    p = fetchJson<ExamQuestion[]>(examJsonUrl(examSession));
+    p = fetchJson<ExamQuestion[]>(examJsonFetchUrl(examSession));
     jsonCache.set(key, p);
   }
   return p;

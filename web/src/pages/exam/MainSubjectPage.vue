@@ -145,7 +145,9 @@ import {
 import { clearAllExamProgressAndRepeat } from 'src/exam/examProgress';
 import type { MockExamHistoryEntry, MockExamState } from 'src/types/mockExam';
 
-const subjects = ['민법', '회계원리', '공동주택시설개론'] as const;
+import { EXAM_SUBJECTS } from 'src/exam/constants';
+
+const subjects = EXAM_SUBJECTS;
 
 const router = useRouter();
 const $q = useQuasar();

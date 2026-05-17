@@ -41,11 +41,11 @@
         <p class="text-body2 q-mb-md">
           <a
             class="text-primary"
-            href="https://github.com/idlepoe/jootaek_exam"
+            href="https://github.com/idlepoe/joonggaego"
             target="_blank"
             rel="noopener noreferrer"
           >
-            github.com/idlepoe/jootaek_exam
+            github.com/idlepoe/joonggaego
           </a>
         </p>
 
