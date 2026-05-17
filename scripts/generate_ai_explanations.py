@@ -15,13 +15,18 @@ import os
 import random
 import re
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
 from google import genai
 from google.genai import types
 
+from exam_image_urls import exam_choice_image_url, exam_question_image_url
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
+IMAGE_PROBE_TIMEOUT_SECONDS = 8.0
 DEFAULT_JSON_DIR = REPO_ROOT / "assets" / "jsons"
 SESSION_MANIFEST_NAME = "exam-sessions.json"
 
@@ -84,7 +89,7 @@ def _response_text(resp: Any) -> str:
 def _generate_with_timeout_and_retry(
     client: genai.Client,
     *,
-    prompt: str,
+    contents: str | list[Any],
     config: types.GenerateContentConfig,
     batch_label: str,
 ) -> Any:
@@ -96,7 +101,7 @@ def _generate_with_timeout_and_retry(
             future = executor.submit(
                 client.models.generate_content,
                 model=MODEL_NAME,
-                contents=prompt,
+                contents=contents,
                 config=config,
             )
             return future.result(timeout=STUCK_TIMEOUT_SECONDS)
@@ -188,27 +193,112 @@ def _build_genai_client() -> tuple[genai.Client, str]:
     return client, "developer-api(api_key)"
 
 
-def _item_payload(item: dict[str, Any]) -> dict[str, Any]:
-    choices = item.get("choices", [])
-    return {
-        "id": item.get("id"),
+def _remote_image_exists(url: str) -> bool:
+    """웹 ExamOptionalRemoteImage과 같이 시도; 없으면(404 등) False."""
+    for method in ("HEAD", "GET"):
+        try:
+            req = urllib.request.Request(url, method=method)
+            req.add_header("User-Agent", "joonggaego-generate-ai-explanations/1.0")
+            if method == "GET":
+                req.add_header("Range", "bytes=0-0")
+            with urllib.request.urlopen(req, timeout=IMAGE_PROBE_TIMEOUT_SECONDS) as resp:
+                return resp.status in (200, 206)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return False
+            continue
+        except (urllib.error.URLError, TimeoutError, OSError):
+            continue
+    return False
+
+
+def _image_exists_cached(url: str, cache: dict[str, bool]) -> bool:
+    if url not in cache:
+        cache[url] = _remote_image_exists(url)
+    return cache[url]
+
+
+def _item_payload(
+    item: dict[str, Any],
+    *,
+    image_probe_cache: dict[str, bool],
+) -> dict[str, Any]:
+    """문항·보기 이미지는 원격에 있을 때만 URL 필드를 넣는다(없으면 생략)."""
+    question_id = str(item.get("id", ""))
+    choices_raw = item.get("choices", [])
+    choices_out: list[dict[str, Any]] = []
+    if isinstance(choices_raw, list):
+        for ch in choices_raw:
+            if not isinstance(ch, dict):
+                continue
+            no = ch.get("no")
+            try:
+                choice_no = int(no)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                continue
+            choice_entry: dict[str, Any] = {
+                "no": choice_no,
+                "text": ch.get("text"),
+            }
+            choice_url = exam_choice_image_url(question_id, choice_no)
+            if _image_exists_cached(choice_url, image_probe_cache):
+                choice_entry["image_url"] = choice_url
+            choices_out.append(choice_entry)
+
+    payload: dict[str, Any] = {
+        "id": question_id,
         "exam_type": item.get("exam_type"),
         "exam_session": item.get("exam_session"),
         "subject": item.get("subject"),
         "question_number": item.get("question_number"),
         "question_text": item.get("question_text"),
-        "choices": choices,
+        "choices": choices_out,
         "correct_answer": item.get("correct_answer"),
-        "choice_count": len(choices) if isinstance(choices, list) else 0,
+        "choice_count": len(choices_out),
     }
+    question_url = exam_question_image_url(question_id)
+    if _image_exists_cached(question_url, image_probe_cache):
+        payload["question_image_url"] = question_url
+    return payload
 
 
-def _build_prompt(batch: list[dict[str, Any]]) -> str:
-    payload = [_item_payload(item) for item in batch]
+def _batch_item_payloads(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cache: dict[str, bool] = {}
+    return [_item_payload(item, image_probe_cache=cache) for item in batch]
+
+
+def _build_gemini_contents(
+    payloads: list[dict[str, Any]],
+    prompt: str,
+) -> list[types.Content]:
+    """JSON에 포함된 이미지 URL만 멀티모달로 첨부(없는 이미지는 이미 제외됨)."""
+    parts: list[types.Part] = [types.Part.from_text(text=prompt)]
+    attached = 0
+    for meta in payloads:
+        q_url = meta.get("question_image_url")
+        if isinstance(q_url, str) and q_url:
+            parts.append(types.Part.from_uri(file_uri=q_url, mime_type="image/png"))
+            attached += 1
+        for ch in meta.get("choices", []):
+            if not isinstance(ch, dict):
+                continue
+            c_url = ch.get("image_url")
+            if isinstance(c_url, str) and c_url:
+                parts.append(types.Part.from_uri(file_uri=c_url, mime_type="image/png"))
+                attached += 1
+    if attached:
+        print(f"  - Gemini 첨부 이미지 {attached}장")
+    return [types.Content(role="user", parts=parts)]
+
+
+def _build_prompt(payloads: list[dict[str, Any]]) -> str:
     max_choices = max((p.get("choice_count") or 5) for p in payload)
     notes_example = ", ".join(f'"{i}번: ..."' for i in range(1, max_choices + 1))
     return (
         "아래는 공인중개사 1차 기출문제(JSON)입니다. 시험 대비용 해설을 작성해줘.\n"
+        "question_image_url·choices[].image_url은 보충 이미지가 실제로 있을 때만 포함된다. "
+        "필드가 없으면 해당 문항·보기에는 이미지가 없는 것이므로 무시할 것.\n"
+        "이미지 필드가 있는 문항은 첨부 이미지와 함께 해설에 반영할 것.\n"
         "반드시 한국어로 답변하고 JSON 형식만 반환해.\n\n"
         "여러 문제를 한 번에 보낼 수 있으므로, 반드시 id를 키로 하는 객체 형태로 반환해.\n\n"
         "중요: JSON 문법을 엄격히 지켜.\n"
@@ -246,7 +336,8 @@ def _build_cache(client: genai.Client) -> str:
         + "\n출력은 반드시 JSON으로만 반환.\n"
         + "correctExplanation/wrongAnswerNotes/examTip 3개 키를 유지.\n"
         + "wrongAnswerNotes는 1번~5번 보기 각각 한 문장. 오답만이 아니라 정답 보기도 포함.\n"
-        + "id 키는 입력 JSON의 id 문자열과 정확히 일치해야 함."
+        + "id 키는 입력 JSON의 id 문자열과 정확히 일치해야 함.\n"
+        + "question_image_url·choices[].image_url은 이미지가 있을 때만 주어진다."
     )
     estimated_tokens = max(1, len(cache_seed_text) // 4)
     if estimated_tokens < CACHE_MIN_TOKEN_COUNT:
@@ -456,7 +547,9 @@ def generate_ai_explanations(
                 f"  - 배치 시작 [{batch_index}/{len(batches)}] "
                 f"size={len(batch)} ids={batch_ids[0]}..{batch_ids[-1]}"
             )
-            prompt = _build_prompt(batch)
+            payloads = _batch_item_payloads(batch)
+            prompt = _build_prompt(payloads)
+            gemini_contents = _build_gemini_contents(payloads, prompt)
             config = types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.3,
@@ -468,7 +561,7 @@ def generate_ai_explanations(
             try:
                 resp = _generate_with_timeout_and_retry(
                     client,
-                    prompt=prompt,
+                    contents=gemini_contents,
                     config=config,
                     batch_label=(
                         f"{target_path.name} [{batch_index}/{len(batches)}] "

@@ -49,6 +49,11 @@ FOOTER_PREFIXES = (
 )
 SUBJECT_LINE = re.compile(r"^\s*\d과목\s*:")
 FILENAME_DATE = re.compile(
+    r"^joonggaego1_(?P<ymd>\d{8})\.pdf$",
+    re.IGNORECASE,
+)
+# 레거시: 공인중개사1차20050522(교사용).pdf
+FILENAME_DATE_LEGACY = re.compile(
     r"공인중개사1차(?P<ymd>\d{8})\(교사용\)\.pdf$",
     re.IGNORECASE,
 )
@@ -59,7 +64,7 @@ SUBJECT_BY_NUMBER: tuple[tuple[int, int, str], ...] = (
 )
 
 def parse_filename_meta(path: Path) -> tuple[str, str]:
-    m = FILENAME_DATE.search(path.name)
+    m = FILENAME_DATE.search(path.name) or FILENAME_DATE_LEGACY.search(path.name)
     if not m:
         raise ValueError(f"Filename not recognized: {path.name}")
     ymd = m.group("ymd")
@@ -239,7 +244,11 @@ def collect_pdf_paths(input_path: Path) -> list[Path]:
     paths = sorted(
         p
         for p in input_path.iterdir()
-        if p.suffix.lower() == ".pdf" and "교사용" in p.name and "1차" in p.name
+        if p.suffix.lower() == ".pdf"
+        and (
+            FILENAME_DATE.match(p.name)
+            or FILENAME_DATE_LEGACY.search(p.name)
+        )
     )
     if not paths:
         raise FileNotFoundError(f"No matching PDFs under {input_path}")
