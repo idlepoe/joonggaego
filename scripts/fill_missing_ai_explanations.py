@@ -4,11 +4,8 @@
 필터만 `needs_ai_explanation` 기준으로 제한한다.
 
 사용 예시:
-  # exams 폴더 전체 — 누락/불완전만 API로 채움
-  python scripts/fill_missing_ai_explanations.py --input assets/json/exams
-
-  # 먼저 전체 스캔( API 없이 누락 개수만 집계 )
-  python scripts/fill_missing_ai_explanations.py --input assets/json/exams --dry-run
+  python scripts/fill_missing_ai_explanations.py --input assets/jsons
+  python scripts/fill_missing_ai_explanations.py --input assets/jsons --dry-run
 """
 
 from __future__ import annotations
@@ -25,9 +22,12 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from generate_ai_explanations import (  # noqa: E402
     AUTO_RESTART_ON_STUCK,
+    DEFAULT_JSON_DIR,
     MAX_AUTO_RESTARTS,
+    REPO_ROOT,
     RESTART_DELAY_SECONDS,
     StuckTimeoutError,
+    _resolve_input_path,
     _target_paths,
     generate_ai_explanations,
     needs_ai_explanation,
@@ -60,12 +60,12 @@ def _dry_run(input_path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="aiExplanation 누락·불완전 문항만 채움 (exams 전체 스캔용)"
+        description="aiExplanation 누락·불완전 문항만 채움 (assets/jsons 스캔)"
     )
     parser.add_argument(
         "--input",
-        default="assets/json/exams",
-        help="JSON 파일 또는 폴더(폴더면 *.json 전부)",
+        default=str(DEFAULT_JSON_DIR.relative_to(REPO_ROOT)),
+        help="JSON 파일 또는 폴더(기본 assets/jsons)",
     )
     parser.add_argument(
         "--batch-size",
@@ -87,7 +87,7 @@ def main() -> None:
     if args.batch_size < 1:
         raise ValueError("--batch-size는 1 이상이어야 합니다.")
 
-    root = Path(args.input)
+    root = _resolve_input_path(args.input)
     if not root.exists():
         raise FileNotFoundError(f"경로가 없습니다: {root}")
 

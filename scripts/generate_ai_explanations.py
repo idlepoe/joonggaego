@@ -1,8 +1,9 @@
-"""Gemini로 문제 해설(aiExplanation) 생성 후 JSON에 저장.
+"""Gemini로 공인중개사 1차 기출 JSON에 aiExplanation 해설을 생성·저장.
 
 사용 예시:
-  python scripts/generate_ai_explanations.py --input assets/json/exams/test.json
-  python scripts/generate_ai_explanations.py --input assets/json/exams
+  python scripts/generate_ai_explanations.py --input assets/jsons
+  python scripts/generate_ai_explanations.py --input assets/jsons/2005-05-22.json
+  python scripts/generate_ai_explanations.py --input assets/jsons --missing-only --batch-size 3
 """
 
 from __future__ import annotations
@@ -20,20 +21,26 @@ from typing import Any
 from google import genai
 from google.genai import types
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_JSON_DIR = REPO_ROOT / "assets" / "jsons"
+SESSION_MANIFEST_NAME = "exam-sessions.json"
+
 MODEL_NAME = "gemini-flash-lite-latest"
 CACHE_MIN_TOKEN_COUNT = 1024
 STUCK_TIMEOUT_SECONDS = 30
 MAX_RETRIES = 5
-DEBUG_LOG_DIR = Path("logs/ai_response_debug")
+DEBUG_LOG_DIR = REPO_ROOT / "logs" / "ai_response_debug"
 DEFAULT_VERTEX_LOCATION = "global"
 AUTO_RESTART_ON_STUCK = True
 MAX_AUTO_RESTARTS = 20
 RESTART_DELAY_SECONDS = 3
+
 SYSTEM_INSTRUCTION = (
-    "당신은 제과·제빵 기능사 시험 전문 강사입니다. "
+    "당신은 공인중개사 1차 시험(부동산학개론, 민법 및 민사특별법) 전문 강사입니다. "
     "수험생이 빠르게 정답을 찾을 수 있도록 '쪽집게 해설'을 제공합니다. "
     "불필요한 설명 없이 핵심 개념, 정답 근거, 오답 비교를 명확하게 설명합니다. "
-    "특히 '틀린 것은?' 문제에서는 어떤 부분이 틀렸는지 정확히 짚어야 합니다."
+    "'옳은 것은?' 문제에서는 정답 보기가 왜 맞는지, "
+    "'틀린 것은?'·'적절하지 않은 것' 문제에서는 오답·부적절 보기가 왜 틀렸는지 정확히 짚습니다."
 )
 
 
@@ -112,7 +119,6 @@ def _generate_with_timeout_and_retry(
             )
             time.sleep(backoff)
         finally:
-            # timeout 시 worker 종료를 기다리지 않아 실제 종료가 지연되지 않게 한다.
             if timed_out:
                 executor.shutdown(wait=False, cancel_futures=True)
             else:
@@ -136,14 +142,12 @@ def _read_dotenv_value(env_path: Path, key: str) -> str | None:
 
 
 def _load_api_key() -> str:
-    """우선순위: 환경변수 > 프로젝트 .env > 스크립트 상위 .env"""
+    """우선순위: 환경변수 > 프로젝트 .env > web/.env"""
     env_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if env_key:
         return env_key
 
-    cwd_env = Path.cwd() / ".env"
-    script_root_env = Path(__file__).resolve().parent.parent / ".env"
-    for env_path in (cwd_env, script_root_env):
+    for env_path in (Path.cwd() / ".env", REPO_ROOT / ".env", REPO_ROOT / "web" / ".env"):
         key = _read_dotenv_value(env_path, "GOOGLE_API_KEY") or _read_dotenv_value(
             env_path, "GEMINI_API_KEY"
         )
@@ -151,7 +155,8 @@ def _load_api_key() -> str:
             return key
 
     raise RuntimeError(
-        "API 키를 찾을 수 없습니다. .env에 GOOGLE_API_KEY(또는 GEMINI_API_KEY)를 설정하세요."
+        "API 키를 찾을 수 없습니다. 저장소 루트 .env에 GEMINI_API_KEY(또는 GOOGLE_API_KEY)를 "
+        "설정하세요. (Google AI Studio 키는 AIza... 또는 AQ. 로 시작할 수 있습니다.)"
     )
 
 
@@ -184,19 +189,26 @@ def _build_genai_client() -> tuple[genai.Client, str]:
 
 
 def _item_payload(item: dict[str, Any]) -> dict[str, Any]:
+    choices = item.get("choices", [])
     return {
         "id": item.get("id"),
+        "exam_type": item.get("exam_type"),
+        "exam_session": item.get("exam_session"),
+        "subject": item.get("subject"),
+        "question_number": item.get("question_number"),
         "question_text": item.get("question_text"),
-        "question_image_url": item.get("question_image_url"),
-        "choices": item.get("choices", []),
+        "choices": choices,
         "correct_answer": item.get("correct_answer"),
+        "choice_count": len(choices) if isinstance(choices, list) else 0,
     }
 
 
 def _build_prompt(batch: list[dict[str, Any]]) -> str:
     payload = [_item_payload(item) for item in batch]
+    max_choices = max((p.get("choice_count") or 5) for p in payload)
+    notes_example = ", ".join(f'"{i}번: ..."' for i in range(1, max_choices + 1))
     return (
-        "아래 문제 정보를 참고해 시험 대비용 해설을 작성해줘.\n"
+        "아래는 공인중개사 1차 기출문제(JSON)입니다. 시험 대비용 해설을 작성해줘.\n"
         "반드시 한국어로 답변하고 JSON 형식만 반환해.\n\n"
         "여러 문제를 한 번에 보낼 수 있으므로, 반드시 id를 키로 하는 객체 형태로 반환해.\n\n"
         "중요: JSON 문법을 엄격히 지켜.\n"
@@ -205,19 +217,20 @@ def _build_prompt(batch: list[dict[str, Any]]) -> str:
         "- 배열/객체 마지막 요소 뒤 후행 콤마 금지\n\n"
         "작성 규칙:\n"
         "1) correctExplanation:\n"
-        "- 정답(틀린 보기)이 왜 틀렸는지 정확한 개념으로 설명\n"
-        "- 반드시 '무엇이 잘못된 표현인지' 지적\n"
+        "- 정답 보기가 왜 맞는지(또는 '틀린 것' 문항이면 왜 그 보기만 틀린지) 개념으로 설명\n"
+        "- 반드시 근거가 되는 법령·원리·용어를 짚을 것\n"
         "- 2~3문장, 단정형 문장 사용\n\n"
         "2) wrongAnswerNotes:\n"
-        "- 각 보기별로 '맞는 이유 또는 틀린 이유'를 한 문장으로 정리\n"
-        "- 개념 기준으로 설명 (단순 반복 금지)\n\n"
+        f"- 보기는 보통 5개(choice_count 참고). 각 보기마다 한 문장, 총 {max_choices}개 항목\n"
+        "- 형식: '1번: ...', '2번: ...' (번호는 보기 no와 일치)\n"
+        "- 맞는 이유 또는 틀린 이유를 개념 기준으로 (단순 반복 금지)\n\n"
         "3) examTip:\n"
-        "- 문제 키워드만 보고 정답을 찾는 한 줄 요령\n"
+        "- 문제 키워드·과목(subject)만 보고 정답을 좁히는 한 줄 요령\n"
         "- 암기용 문장 형태로 작성\n\n"
         "{\n"
-        '  "문제ID": {\n'
+        '  "joonggaego1_20050522_1": {\n'
         '    "correctExplanation": "...",\n'
-        '    "wrongAnswerNotes": ["1번: ...", "2번: ...", "3번: ...", "4번: ..."],\n'
+        f'    "wrongAnswerNotes": [{notes_example}],\n'
         '    "examTip": "..."\n'
         "  }\n"
         "}\n\n"
@@ -232,7 +245,8 @@ def _build_cache(client: genai.Client) -> str:
         SYSTEM_INSTRUCTION
         + "\n출력은 반드시 JSON으로만 반환.\n"
         + "correctExplanation/wrongAnswerNotes/examTip 3개 키를 유지.\n"
-        + "wrongAnswerNotes는 반드시 키워드 기준으로 작성. 오답 보기 번호는 포함하지 않는다."
+        + "wrongAnswerNotes는 1번~5번 보기 각각 한 문장. 오답만이 아니라 정답 보기도 포함.\n"
+        + "id 키는 입력 JSON의 id 문자열과 정확히 일치해야 함."
     )
     estimated_tokens = max(1, len(cache_seed_text) // 4)
     if estimated_tokens < CACHE_MIN_TOKEN_COUNT:
@@ -244,7 +258,7 @@ def _build_cache(client: genai.Client) -> str:
     cache = client.caches.create(
         model=MODEL_NAME,
         config=types.CreateCachedContentConfig(
-            display_name="repeat_exam_ai_explanation_cache",
+            display_name="joonggaego_exam_ai_explanation_cache",
             system_instruction=SYSTEM_INSTRUCTION,
             contents=[
                 types.Content(
@@ -269,7 +283,6 @@ def _parse_response_json(text: str) -> dict[str, Any]:
             raise RuntimeError("응답 JSON 최상위는 객체(dict)여야 합니다.")
         return parsed
     except json.JSONDecodeError:
-        # 모델이 JSON 뒤에 여분 문자를 붙이는 경우(예: 추가 '}' 또는 설명문)를 복구한다.
         decoder = json.JSONDecoder()
         try:
             parsed, end_idx = decoder.raw_decode(cleaned)
@@ -283,7 +296,6 @@ def _parse_response_json(text: str) -> dict[str, Any]:
                 )
             return parsed
         except json.JSONDecodeError:
-            # 흔한 JSON 오염(후행 콤마)을 보정해 재파싱한다.
             sanitized = re.sub(r",\s*([}\]])", r"\1", cleaned)
             if sanitized != cleaned:
                 print("  - 경고: JSON 후행 콤마를 자동 보정해 재시도합니다.")
@@ -338,9 +350,20 @@ def _dump_parse_debug_log(
     return debug_path
 
 
+def _resolve_input_path(raw: str) -> Path:
+    p = Path(raw)
+    if not p.is_absolute():
+        p = REPO_ROOT / p
+    return p.resolve()
+
+
 def _target_paths(input_path: Path) -> list[Path]:
     if input_path.is_dir():
-        return sorted(input_path.glob("*.json"))
+        return sorted(
+            p
+            for p in input_path.glob("*.json")
+            if p.is_file() and p.name != SESSION_MANIFEST_NAME
+        )
     return [input_path]
 
 
@@ -361,6 +384,9 @@ def needs_ai_explanation(item: dict[str, Any]) -> bool:
     if not isinstance(notes, list) or len(notes) == 0:
         return True
     if not all(isinstance(x, str) and x.strip() for x in notes):
+        return True
+    choices = item.get("choices", [])
+    if isinstance(choices, list) and len(choices) > 0 and len(notes) < len(choices):
         return True
     return False
 
@@ -450,7 +476,6 @@ def generate_ai_explanations(
                     ),
                 )
             except StuckTimeoutError:
-                # 사용자가 요청한 "스턱 시 종료" 정책: 즉시 전체 실행 중단
                 raise
             except Exception as e:
                 print(f"배치 실패: {e}")
@@ -498,7 +523,6 @@ def generate_ai_explanations(
                 processed += 1
                 total_processed += 1
 
-            # 배치 단위로 즉시 저장: 중간 중단 시에도 완료된 해설 보존
             target_path.write_text(
                 json.dumps(data, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
@@ -526,30 +550,29 @@ def generate_ai_explanations(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="joonggaego assets/jsons 기출 JSON에 Gemini 해설(aiExplanation) 추가"
+    )
     parser.add_argument(
         "--input",
-        default="assets/json/exams",
-        help="해설을 추가할 JSON 파일 또는 폴더 경로(폴더면 *.json 전체 처리)",
+        default=str(DEFAULT_JSON_DIR.relative_to(REPO_ROOT)),
+        help="JSON 파일 또는 폴더(기본 assets/jsons, exam-sessions.json 제외)",
     )
     parser.add_argument(
         "--batch-size",
         type=int,
         default=1,
-        help="한 번의 API 호출에 포함할 문제 수 (기본 1, 권장 5)",
+        help="한 번의 API 호출에 포함할 문제 수 (기본 1, 권장 3~5)",
     )
     parser.add_argument(
         "--skip-existing",
         action="store_true",
-        help="이미 aiExplanation가 있는 문항은 API 호출 없이 건너뜁니다.",
+        help="이미 aiExplanation 키가 있는 문항은 건너뜁니다.",
     )
     parser.add_argument(
         "--missing-only",
         action="store_true",
-        help=(
-            "aiExplanation 키가 없거나 값이 불완전한 문항만 처리합니다 "
-            "(기존 스크립트 fill_missing_ai_explanations.py와 동일 목적)."
-        ),
+        help="aiExplanation이 없거나 불완전한 문항만 처리합니다.",
     )
     parser.add_argument(
         "--fail-fast",
@@ -561,11 +584,16 @@ def main() -> None:
         raise ValueError("--batch-size는 1 이상이어야 합니다.")
     if args.missing_only and args.skip_existing:
         raise ValueError("--missing-only 와 --skip-existing 는 함께 쓸 수 없습니다.")
+
+    input_path = _resolve_input_path(args.input)
+    if not input_path.exists():
+        raise FileNotFoundError(f"경로가 없습니다: {input_path}")
+
     restart_count = 0
     while True:
         try:
             generate_ai_explanations(
-                Path(args.input),
+                input_path,
                 batch_size=args.batch_size,
                 skip_existing=args.skip_existing,
                 missing_only=args.missing_only,
