@@ -209,9 +209,9 @@ function next() {
       finishSessionCleanup();
       void router.push({ name: 'exam-sessions', params: { subject: props.subject } });
     })
-    .onCancel(async () => {
+    .onCancel(() => {
       finishSessionCleanup();
-      await goToNextSessionOrList();
+      void goToNextSessionOrList();
     });
 }
 </script>

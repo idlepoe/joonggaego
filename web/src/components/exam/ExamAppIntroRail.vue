@@ -9,7 +9,7 @@
           height="72"
           alt=""
         />
-        <div class="text-h6 text-weight-bold q-mt-sm">광고없는주택관리사1차기출회독</div>
+        <div class="text-h6 text-weight-bold q-mt-sm">광고없는공인중개사1차기출회독</div>
         <p class="text-body2 text-grey-8 q-mt-sm q-mb-md">
           주택관리사보수능력검정 <strong>1차</strong> 기출을 회독·모의고사 형태로 학습할 수 있는
           <strong>광고 없음</strong> 웹·앱입니다.

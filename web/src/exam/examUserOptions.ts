@@ -23,7 +23,7 @@ export interface ExamUserOptions {
 
 export const DEFAULT_EXAM_USER_OPTIONS: ExamUserOptions = {
   themeMode: 'system',
-  correctHighlightHex: '#ffcccc',
+  correctHighlightHex: '#e53935',
   correctHighlightTextHex: '#ffffff',
   pickChoiceHighlightHex: '#1565c0',
   pickChoiceHighlightTextHex: '#ffffff',
@@ -119,7 +119,7 @@ export function readExamUserOptions(): ExamUserOptions {
     if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return { ...DEFAULT_EXAM_USER_OPTIONS };
     }
-    return normalizeExamUserOptions(parsed as Partial<ExamUserOptions>);
+    return normalizeExamUserOptions(parsed);
   } catch {
     return { ...DEFAULT_EXAM_USER_OPTIONS };
   }

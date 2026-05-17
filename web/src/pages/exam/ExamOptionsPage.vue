@@ -356,7 +356,7 @@ function normalizeHexFromColor(v: string | Record<string, unknown>): string {
 }
 
 function confirmColor() {
-  const hex = normalizeHexFromColor(colorDraft.value as string | Record<string, unknown>);
+  const hex = normalizeHexFromColor(colorDraft.value);
   if (colorDialogKind.value === 'correct') {
     store.patchAndPersist({ correctHighlightHex: hex });
   } else if (colorDialogKind.value === 'correctText') {

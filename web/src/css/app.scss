@@ -3,7 +3,7 @@
   --app-max-width: 720px;
   /* 인트로 레일: 왼쪽 여백 안에서만 가변 폭(중앙 본문과 절대 겹치지 않음). 넓은 화면에서의 상한 */
   --app-intro-rail-max-w: 400px;
-  --exam-correct-bg: #ffcccc;
+  --exam-correct-bg: #e53935;
   --exam-correct-text: #ffffff;
   --exam-pick-choice-bg: #1565c0;
   --exam-pick-choice-text: #ffffff;
@@ -113,7 +113,7 @@ body {
 
 /* 정답 하이라이트 (배경·글자색은 옵션 CSS 변수) */
 .exam-correct-highlight {
-  background-color: var(--exam-correct-bg, #ffcccc) !important;
+  background-color: var(--exam-correct-bg, #e53935) !important;
   color: var(--exam-correct-text, #ffffff) !important;
 }
 
