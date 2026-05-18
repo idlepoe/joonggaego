@@ -1,12 +1,12 @@
 <template>
-  <q-page padding class="q-pb-xl">
+  <q-page padding :style="pageStyle">
     <q-inner-loading :showing="loading" color="primary" />
 
     <template v-if="!loading && current">
       <div class="q-mb-lg" :class="questionTextClass" style="white-space: pre-wrap">
         {{ displayIndex }}. {{ current.question_text }}
       </div>
-      <ExamOptionalRemoteImage :src="examQuestionImageUrl(current.id)" />
+      <ExamOptionalRemoteImage bottom-spacing :src="examQuestionImageUrl(current.id)" />
       <div class="column q-gutter-sm q-mb-lg">
         <q-card
           v-for="c in current.choices"
@@ -32,6 +32,7 @@
 
     <q-page-sticky
       v-if="!loading && questions.length > 0"
+      ref="stickyNavRef"
       class="exam-sheet-nav-sticky-wrap"
       position="bottom"
       expand
@@ -47,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
@@ -68,6 +69,11 @@ import { useExamUserOptionsStore } from 'stores/exam-user-options';
 import ExamOptionalRemoteImage from 'src/components/exam/ExamOptionalRemoteImage.vue';
 import ExamSheetNavToolbar from 'src/components/exam/ExamSheetNavToolbar.vue';
 import { examChoiceImageUrl, examQuestionImageUrl } from 'src/exam/constants';
+import {
+  scrollExamPageToTop,
+  useExamQuestionScrollToTop,
+  useExamSheetBottomInset,
+} from 'src/exam/useExamSheetPageChrome';
 
 const props = defineProps<{
   subject: string;
@@ -94,6 +100,16 @@ const index = ref(0);
 const current = computed(() => questions.value[index.value] ?? null);
 const total = computed(() => questions.value.length);
 const displayIndex = computed(() => (total.value ? index.value + 1 : 0));
+
+const stickyNavRef = ref<ComponentPublicInstance | null>(null);
+const showNav = computed(() => !loading.value && questions.value.length > 0);
+const { pageStyle } = useExamSheetBottomInset(stickyNavRef, showNav);
+
+useExamQuestionScrollToTop([index, () => props.session, () => props.subject]);
+
+watch(loading, (v) => {
+  if (!v) scrollExamPageToTop();
+});
 
 onMounted(async () => {
   loading.value = true;
