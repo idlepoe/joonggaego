@@ -23,6 +23,10 @@
           <ExamOptionalRemoteImage :src="examChoiceImageUrl(current.id, c.no)" />
         </q-card>
       </div>
+      <ExamAiExplanationSection
+        :explanation="current.aiExplanation"
+        :body-class="choiceTextClass"
+      />
     </template>
 
     <div v-else-if="!loading && !loadError && questions.length === 0" class="text-grey">
@@ -66,6 +70,7 @@ import {
 } from 'src/exam/examProgress';
 import { useExamSheetToolbarStore } from 'stores/exam-sheet-toolbar';
 import { useExamUserOptionsStore } from 'stores/exam-user-options';
+import ExamAiExplanationSection from 'src/components/exam/ExamAiExplanationSection.vue';
 import ExamOptionalRemoteImage from 'src/components/exam/ExamOptionalRemoteImage.vue';
 import ExamSheetNavToolbar from 'src/components/exam/ExamSheetNavToolbar.vue';
 import { examChoiceImageUrl, examQuestionImageUrl } from 'src/exam/constants';

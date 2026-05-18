@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:get/get.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
 import '../controllers/home_controller.dart';
 
@@ -23,7 +23,19 @@ class HomeView extends GetView<HomeController> {
         body: SafeArea(
           child: Stack(
             children: [
-              WebViewWidget(controller: controller.webViewController),
+              InAppWebView(
+                initialUrlRequest: controller.initialUrlRequest,
+                initialSettings: controller.initialSettings,
+                onWebViewCreated: controller.onWebViewCreated,
+                onLoadStart: (webView, url) => controller.onLoadStart(),
+                onLoadStop: (webView, url) => controller.onLoadStop(),
+                onProgressChanged: (webView, progress) =>
+                    controller.onProgressChanged(progress),
+                onReceivedError: (webView, request, error) =>
+                    controller.onLoadError(),
+                onReceivedHttpError: (webView, request, response) =>
+                    controller.onLoadError(),
+              ),
               Obx(() {
                 if (!controller.isLoading.value) {
                   return const SizedBox.shrink();

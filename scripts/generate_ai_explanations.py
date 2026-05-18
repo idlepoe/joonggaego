@@ -30,7 +30,7 @@ IMAGE_PROBE_TIMEOUT_SECONDS = 8.0
 DEFAULT_JSON_DIR = REPO_ROOT / "assets" / "jsons"
 SESSION_MANIFEST_NAME = "exam-sessions.json"
 
-MODEL_NAME = "gemini-flash-lite-latest"
+MODEL_NAME = "gemini-2.5-flash-lite"
 CACHE_MIN_TOKEN_COUNT = 1024
 STUCK_TIMEOUT_SECONDS = 30
 MAX_RETRIES = 5
