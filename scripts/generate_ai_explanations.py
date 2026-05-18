@@ -18,7 +18,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from google import genai
 from google.genai import types
@@ -92,7 +92,10 @@ def _generate_with_timeout_and_retry(
     contents: str | list[Any],
     config: types.GenerateContentConfig,
     batch_label: str,
+    timeout_seconds: float | None = None,
+    log_fn: Callable[[str], None] | None = None,
 ) -> Any:
+    wait_s = STUCK_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
     for attempt in range(1, MAX_RETRIES + 1):
         start = time.perf_counter()
         executor = ThreadPoolExecutor(max_workers=1)
@@ -104,24 +107,39 @@ def _generate_with_timeout_and_retry(
                 contents=contents,
                 config=config,
             )
-            return future.result(timeout=STUCK_TIMEOUT_SECONDS)
+            return future.result(timeout=wait_s)
         except FuturesTimeoutError as e:
             elapsed = time.perf_counter() - start
             timed_out = True
             future.cancel()
-            message = (
-                f"{batch_label} 응답 대기 {elapsed:.1f}s 초과 "
-                f"(기준 {STUCK_TIMEOUT_SECONDS}s): 스턱으로 판단해 종료합니다."
+            if attempt == MAX_RETRIES:
+                message = (
+                    f"{batch_label} 응답 대기 {elapsed:.1f}s 초과 "
+                    f"(기준 {wait_s}s, {MAX_RETRIES}회 시도): 스턱으로 판단해 종료합니다."
+                )
+                raise StuckTimeoutError(message) from e
+            backoff = min(30.0, (2 ** (attempt - 1)) + random.uniform(0.0, 1.0))
+            msg = (
+                f"  - 타임아웃 재시도 {attempt}/{MAX_RETRIES} ({batch_label}) "
+                f"{elapsed:.1f}s > {wait_s}s | {backoff:.1f}s 후 재시도"
             )
-            raise StuckTimeoutError(message) from e
+            if log_fn:
+                log_fn(msg)
+            else:
+                print(msg, flush=True)
+            time.sleep(backoff)
         except Exception as e:
             if (not _is_retryable_error(e)) or attempt == MAX_RETRIES:
                 raise
             backoff = min(30.0, (2 ** (attempt - 1)) + random.uniform(0.0, 1.0))
-            print(
+            msg = (
                 f"  - 재시도 {attempt}/{MAX_RETRIES} ({batch_label}) "
                 f"error={type(e).__name__}: {e} | {backoff:.1f}s 후 재시도"
             )
+            if log_fn:
+                log_fn(msg)
+            else:
+                print(msg, flush=True)
             time.sleep(backoff)
         finally:
             if timed_out:
