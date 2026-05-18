@@ -86,6 +86,13 @@ def _response_text(resp: Any) -> str:
     return (text or "").strip()
 
 
+def _emit(message: str, log_fn: Callable[[str], None] | None = None) -> None:
+    if log_fn:
+        log_fn(message)
+    else:
+        print(message, flush=True)
+
+
 def _generate_with_timeout_and_retry(
     client: genai.Client,
     *,
@@ -123,10 +130,7 @@ def _generate_with_timeout_and_retry(
                 f"  - 타임아웃 재시도 {attempt}/{MAX_RETRIES} ({batch_label}) "
                 f"{elapsed:.1f}s > {wait_s}s | {backoff:.1f}s 후 재시도"
             )
-            if log_fn:
-                log_fn(msg)
-            else:
-                print(msg, flush=True)
+            _emit(msg, log_fn)
             time.sleep(backoff)
         except Exception as e:
             if (not _is_retryable_error(e)) or attempt == MAX_RETRIES:
@@ -136,10 +140,7 @@ def _generate_with_timeout_and_retry(
                 f"  - 재시도 {attempt}/{MAX_RETRIES} ({batch_label}) "
                 f"error={type(e).__name__}: {e} | {backoff:.1f}s 후 재시도"
             )
-            if log_fn:
-                log_fn(msg)
-            else:
-                print(msg, flush=True)
+            _emit(msg, log_fn)
             time.sleep(backoff)
         finally:
             if timed_out:
@@ -288,6 +289,7 @@ def _batch_item_payloads(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _build_gemini_contents(
     payloads: list[dict[str, Any]],
     prompt: str,
+    log_fn: Callable[[str], None] | None = None,
 ) -> list[types.Content]:
     """JSON에 포함된 이미지 URL만 멀티모달로 첨부(없는 이미지는 이미 제외됨)."""
     parts: list[types.Part] = [types.Part.from_text(text=prompt)]
@@ -305,12 +307,12 @@ def _build_gemini_contents(
                 parts.append(types.Part.from_uri(file_uri=c_url, mime_type="image/png"))
                 attached += 1
     if attached:
-        print(f"  - Gemini 첨부 이미지 {attached}장")
+        _emit(f"  - Gemini 첨부 이미지 {attached}장", log_fn)
     return [types.Content(role="user", parts=parts)]
 
 
 def _build_prompt(payloads: list[dict[str, Any]]) -> str:
-    max_choices = max((p.get("choice_count") or 5) for p in payload)
+    max_choices = max((p.get("choice_count") or 5) for p in payloads)
     notes_example = ", ".join(f'"{i}번: ..."' for i in range(1, max_choices + 1))
     return (
         "아래는 공인중개사 1차 기출문제(JSON)입니다. 시험 대비용 해설을 작성해줘.\n"
@@ -343,7 +345,7 @@ def _build_prompt(payloads: list[dict[str, Any]]) -> str:
         "  }\n"
         "}\n\n"
         "문제 메타(JSON 배열):\n"
-        f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
+        f"{json.dumps(payloads, ensure_ascii=False, indent=2)}"
     )
 
 
@@ -510,21 +512,23 @@ def generate_ai_explanations(
     skip_existing: bool,
     missing_only: bool,
     fail_fast: bool,
+    log_fn: Callable[[str], None] | None = None,
 ) -> None:
     client, client_mode = _build_genai_client()
-    print(
+    _emit(
         "[설정] "
         f"model={MODEL_NAME}, batch_size={batch_size}, "
         f"skip_existing={skip_existing}, missing_only={missing_only}, "
         f"fail_fast={fail_fast}, stuck_timeout={STUCK_TIMEOUT_SECONDS}s, "
-        f"max_retries={MAX_RETRIES}, client={client_mode}"
+        f"max_retries={MAX_RETRIES}, client={client_mode}",
+        log_fn,
     )
     cache_name: str | None = None
     try:
         cache_name = _build_cache(client)
-        print(f"컨텍스트 캐시 사용: {cache_name}")
+        _emit(f"컨텍스트 캐시 사용: {cache_name}", log_fn)
     except Exception as e:
-        print(f"캐시 미사용(일반 호출로 진행): {e}")
+        _emit(f"캐시 미사용(일반 호출로 진행): {e}", log_fn)
 
     target_paths = _target_paths(input_path)
     if not target_paths:
@@ -539,21 +543,21 @@ def generate_ai_explanations(
         if not isinstance(data, list):
             raise ValueError(f"입력 JSON은 문제 객체 배열이어야 합니다: {target_path}")
 
-        print(f"\n[{file_index}/{len(target_paths)}] 파일 처리: {target_path}")
+        _emit(f"\n[{file_index}/{len(target_paths)}] 파일 처리: {target_path}", log_fn)
         source_items = data
         if missing_only:
             source_items = [item for item in data if needs_ai_explanation(item)]
             skipped_count = len(data) - len(source_items)
             if skipped_count:
-                print(f"  - 이미 완전한 aiExplanation 스킵: {skipped_count}개")
+                _emit(f"  - 이미 완전한 aiExplanation 스킵: {skipped_count}개", log_fn)
         elif skip_existing:
             source_items = [item for item in data if "aiExplanation" not in item]
             skipped_count = len(data) - len(source_items)
             if skipped_count:
-                print(f"  - 기존 aiExplanation 스킵: {skipped_count}개")
+                _emit(f"  - 기존 aiExplanation 스킵: {skipped_count}개", log_fn)
 
         if not source_items:
-            print("  - 처리할 신규 문항이 없어 파일 저장을 건너뜁니다.")
+            _emit("  - 처리할 신규 문항이 없어 파일 저장을 건너뜁니다.", log_fn)
             continue
 
         batches = _chunked(source_items, batch_size)
@@ -561,13 +565,18 @@ def generate_ai_explanations(
         failed_batches: list[str] = []
         for batch_index, batch in enumerate(batches, start=1):
             batch_ids = [str(item.get("id")) for item in batch]
-            print(
+            batch_label = (
+                f"{target_path.name} [{batch_index}/{len(batches)}] "
+                f"ids={batch_ids[0]}..{batch_ids[-1]}"
+            )
+            _emit(
                 f"  - 배치 시작 [{batch_index}/{len(batches)}] "
-                f"size={len(batch)} ids={batch_ids[0]}..{batch_ids[-1]}"
+                f"size={len(batch)} ids={batch_ids[0]}..{batch_ids[-1]}",
+                log_fn,
             )
             payloads = _batch_item_payloads(batch)
             prompt = _build_prompt(payloads)
-            gemini_contents = _build_gemini_contents(payloads, prompt)
+            gemini_contents = _build_gemini_contents(payloads, prompt, log_fn=log_fn)
             config = types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.3,
@@ -577,19 +586,18 @@ def generate_ai_explanations(
 
             batch_start = time.perf_counter()
             try:
+                _emit(f"  - API 요청 중… ({batch_label})", log_fn)
                 resp = _generate_with_timeout_and_retry(
                     client,
                     contents=gemini_contents,
                     config=config,
-                    batch_label=(
-                        f"{target_path.name} [{batch_index}/{len(batches)}] "
-                        f"ids={batch_ids[0]}..{batch_ids[-1]}"
-                    ),
+                    batch_label=batch_label,
+                    log_fn=log_fn,
                 )
             except StuckTimeoutError:
                 raise
             except Exception as e:
-                print(f"배치 실패: {e}")
+                _emit(f"배치 실패: {e}", log_fn)
                 msg = (
                     f"배치 실패 [{batch_index}/{len(batches)}] "
                     f"ids={batch_ids}, batch_size={len(batch)}, "
@@ -599,9 +607,10 @@ def generate_ai_explanations(
                     raise RuntimeError(msg) from e
                 failed_batches.append(msg)
                 total_failed_batches += 1
-                print(f"  - {msg}")
+                _emit(f"  - {msg}", log_fn)
                 continue
             response_text = _response_text(resp)
+            _emit(f"  - API 응답 수신 ({len(response_text)}자)", log_fn)
             if not response_text:
                 raise RuntimeError(f"{target_path} 배치 응답이 비어 있습니다.")
 
@@ -616,12 +625,13 @@ def generate_ai_explanations(
                     response_text=response_text,
                     error=e,
                 )
-                print(
+                _emit(
                     f"배치 JSON 파싱 실패 [{batch_index}/{len(batches)}] "
-                    f"ids={batch_ids[0]}..{batch_ids[-1]}"
+                    f"ids={batch_ids[0]}..{batch_ids[-1]}",
+                    log_fn,
                 )
-                print(f"  - 디버그 로그 저장: {debug_path}")
-                print(f"  - 응답 길이: {len(response_text)}자")
+                _emit(f"  - 디버그 로그 저장: {debug_path}", log_fn)
+                _emit(f"  - 응답 길이: {len(response_text)}자", log_fn)
                 raise
             if not isinstance(explanation, dict):
                 raise RuntimeError("배치 응답 형식이 올바르지 않습니다(dict 필요).")
@@ -639,24 +649,27 @@ def generate_ai_explanations(
                 encoding="utf-8",
             )
 
-            print(
+            _emit(
                 f"  - 배치 [{batch_index}/{len(batches)}] 완료 "
                 f"(누적 {processed}/{len(source_items)}, "
-                f"소요 {time.perf_counter() - batch_start:.1f}s)"
+                f"소요 {time.perf_counter() - batch_start:.1f}s)",
+                log_fn,
             )
-        print(f"파일 반영 완료: {target_path}")
+        _emit(f"파일 반영 완료: {target_path}", log_fn)
         if failed_batches:
-            print(f"  - 실패 배치 {len(failed_batches)}건")
+            _emit(f"  - 실패 배치 {len(failed_batches)}건", log_fn)
             for failed in failed_batches:
-                print(f"    * {failed}")
-        print(
+                _emit(f"    * {failed}", log_fn)
+        _emit(
             f"[{file_index}/{total_files}] 파일 완료: {target_path} "
-            f"(소요 {time.perf_counter() - file_start:.1f}s)"
+            f"(소요 {time.perf_counter() - file_start:.1f}s)",
+            log_fn,
         )
 
-    print(
+    _emit(
         f"\n전체 완료: 파일 {total_files}개, 처리 문항 {total_processed}개, "
-        f"실패 배치 {total_failed_batches}건"
+        f"실패 배치 {total_failed_batches}건",
+        log_fn,
     )
 
 
